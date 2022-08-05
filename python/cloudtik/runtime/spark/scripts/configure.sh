@@ -388,6 +388,7 @@ function configure_jupyter_for_spark() {
       mkdir -p $JUPYTER_WORKSPACE
       sed -i  "1 ic.NotebookApp.notebook_dir = '${JUPYTER_WORKSPACE}'" ~/.jupyter/jupyter_lab_config.py
       sed -i  "1 ic.NotebookApp.ip = '${HEAD_ADDRESS}'" ~/.jupyter/jupyter_lab_config.py
+      sed -i  "1 ic.NotebookApp.base_url = '/notebook/'" ~/.jupyter/jupyter_lab_config.py
   fi
 }
 

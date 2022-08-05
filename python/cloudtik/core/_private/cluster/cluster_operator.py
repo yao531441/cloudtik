@@ -50,7 +50,7 @@ from cloudtik.core._private.utils import validate_config, hash_runtime_conf, \
     is_node_in_completed_status, check_for_single_worker_type, get_preferred_cpu_bundle_size, \
     get_node_specific_commands_of_runtimes, _get_node_specific_runtime_config, \
     _get_node_specific_docker_config, RUNTIME_CONFIG_KEY, DOCKER_CONFIG_KEY, get_running_head_node, \
-    get_nodes_for_runtime, with_script_args
+    get_nodes_for_runtime, with_script_args, run_system_command
 
 from cloudtik.core._private.providers import _get_node_provider, \
     _NODE_PROVIDERS, _PROVIDER_PRETTY_NAMES
@@ -3142,3 +3142,27 @@ def _wait_for_ready(config: Dict[str, Any],
             cli_logger.verbose("Waiting for workers to be ready: {}/{}", workers_ready, min_workers)
             time.sleep(interval)
     raise TimeoutError("Timed out while waiting for workers to be ready: {}/{}".format(workers_ready, min_workers))
+
+
+def prepare_nginx(config_file: str):
+    config = _load_cluster_config(config_file)
+    _prepare_nginx(config)
+
+
+def _prepare_nginx(config: Dict[str, Any]):
+    if config["web_access_by_nginx"]:
+        run_system_command("which nginx||sudo apt install nginx")
+        head_node_ip = _get_head_node_ip(config)
+        nginx_conf_path = os.path.join(os.path.abspath(os.path.dirname(__file__)) + "cloudtik_nginx.conf")
+        run_system_command(f"sudo echo '{head_node_ip} cloudtik-head' >> /etc/hosts")
+        run_system_command(f"sudo nginx -c {nginx_conf_path}")
+
+
+def stop_nginx(config_file: str):
+    config = _load_cluster_config(config_file)
+    _stop_nginx(config)
+
+
+def _stop_nginx(config: Dict[str, Any]):
+    if config["web_access_by_nginx"]:
+        run_system_command(f"sudo nginx -s stop")
