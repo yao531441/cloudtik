@@ -4,7 +4,7 @@ from collections import defaultdict, namedtuple, Counter
 from typing import Any, Optional, Dict, List, Set, FrozenSet, Tuple, Union, \
     Callable
 import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 import logging
 import math
 import operator
@@ -16,9 +16,12 @@ import yaml
 from enum import Enum
 from six.moves import queue
 
+from cloudtik.core._private import constants
 from cloudtik.core._private.call_context import CallContext
+from cloudtik.core._private.cluster.cluster_metrics_updater import ClusterMetricsUpdater
+from cloudtik.core._private.cluster.resource_scaling_policy import ResourceScalingPolicy
 from cloudtik.core._private.crypto import AESCipher
-from cloudtik.core._private.state.kv_store import kv_put, kv_del
+from cloudtik.core._private.state.kv_store import kv_put, kv_del, kv_initialized
 
 try:
     from urllib3.exceptions import MaxRetryError
@@ -48,7 +51,7 @@ from cloudtik.core._private.utils import ConcurrentCounter, validate_config, \
     _get_node_specific_docker_config, _get_node_specific_runtime_config, \
     _has_node_type_specific_runtime_config, get_runtime_config_key, RUNTIME_CONFIG_KEY, \
     _get_minimal_nodes_before_update, CLOUDTIK_CLUSTER_NODES_INFO_NODE_TYPE, _notify_minimal_nodes_reached, \
-    process_config_with_privacy
+    process_config_with_privacy, decrypt_config, CLOUDTIK_CLUSTER_SCALING_STATUS
 from cloudtik.core._private.constants import CLOUDTIK_MAX_NUM_FAILURES, \
     CLOUDTIK_MAX_LAUNCH_BATCH, CLOUDTIK_MAX_CONCURRENT_LAUNCHES, \
     CLOUDTIK_UPDATE_INTERVAL_S, CLOUDTIK_HEARTBEAT_TIMEOUT_S, CLOUDTIK_RUNTIME_ENV_SECRETS
@@ -133,12 +136,13 @@ class ClusterScaler:
             # TODO: require config reader to be a callable always.
             config_reader: Union[str, Callable[[], dict]],
             cluster_metrics: ClusterMetrics,
+            cluster_metrics_updater: ClusterMetricsUpdater,
+            resource_scaling_policy: ResourceScalingPolicy,
             max_launch_batch: int = CLOUDTIK_MAX_LAUNCH_BATCH,
             max_concurrent_launches: int = CLOUDTIK_MAX_CONCURRENT_LAUNCHES,
             max_failures: int = CLOUDTIK_MAX_NUM_FAILURES,
             process_runner: Any = subprocess,
             update_interval_s: int = CLOUDTIK_UPDATE_INTERVAL_S,
-            prefix_cluster_info: bool = False,
             event_summarizer: Optional[EventSummarizer] = None,
             prometheus_metrics: Optional[ClusterPrometheusMetrics] = None,
     ):
@@ -156,7 +160,6 @@ class ClusterScaler:
                 before exiting.
             process_runner: Subproc-like interface used by the CommandRunner.
             update_interval_s: Seconds between running the autoscaling loop.
-            prefix_cluster_info: Whether to add the cluster name to info strs.
             event_summarizer: Utility to consolidate duplicated messages.
             prometheus_metrics: Prometheus metrics for cluster scaler related operations.
         """
@@ -172,11 +175,10 @@ class ClusterScaler:
         else:
             self.config_reader = config_reader
 
+        self.config = {}
         # TODO: Each node updater may need its own CallContext
         # The call context for node updater
         self.call_context = CallContext()
-        # Prefix each line of info string with cluster name if True
-        self.prefix_cluster_info = prefix_cluster_info
         # Keep this before self.reset (self.provider needs to be created
         # exactly once).
         self.provider = None
@@ -202,8 +204,11 @@ class ClusterScaler:
         # will be initialized by the max node number from the existing nodes
         self.next_node_number = None
 
-        self.reset(errors_fatal=True)
         self.cluster_metrics = cluster_metrics
+        self.cluster_metrics_updater = cluster_metrics_updater
+        self.resource_scaling_policy = resource_scaling_policy
+
+        self.reset(errors_fatal=True)
 
         self.max_failures = max_failures
         self.max_launch_batch = max_launch_batch
@@ -276,9 +281,37 @@ class ClusterScaler:
         process_config_with_privacy(config_to_log)
         logger.info("Cluster Controller: {}".format(config_to_log))
 
+    def run(self):
+        self.reset(errors_fatal=False)
+
+        # self.resource_scaling_policy.update()
+        self.cluster_metrics_updater.update()
+
+        status = {
+            "cluster_metrics_report": asdict(self.cluster_metrics.summary()),
+            "time": time.time(),
+            "controller_pid": os.getpid()
+        }
+
+        self.update()
+        self.update_status(status)
+
+    def update_status(self, status):
+        status["cluster_scaler_report"] = asdict(self.summary())
+        for msg in self.event_summarizer.summary():
+            # Need to prefix each line of the message for the lines to
+            # get pushed to the driver logs.
+            for line in msg.split("\n"):
+                logger.info("{}{}".format(
+                    constants.LOG_PREFIX_EVENT_SUMMARY, line))
+        self.event_summarizer.clear()
+
+        as_json = json.dumps(status)
+        if kv_initialized():
+            kv_put(CLOUDTIK_CLUSTER_SCALING_STATUS, as_json, overwrite=True)
+
     def update(self):
         try:
-            self.reset(errors_fatal=False)
             self._update()
         except Exception as e:
             self.prometheus_metrics.update_loop_exceptions.inc()
@@ -340,6 +373,15 @@ class ClusterScaler:
                 self.attempt_to_recover_unhealthy_nodes(now)
                 self.set_prometheus_updater_data()
 
+        # The key place to scale up the nodes based on resource metrics
+        # Based on the following aspects:
+        # 1. The remaining (available) resources -> dynamic_resources_by_ip (get_resource_utilization)
+        # 2. The resource demands (get_resource_demands)
+        # 3. The minimum resources request from manual scale up or down (get_resource_requests).
+        #    This resource requests will not check the existing resource usage which is different from resource
+        #    demands from #2
+        # 4. The total resources of each node reported by runtime is used to update the node type resource information.
+        #    (get_static_node_resources_by_ip)
         # Dict[NodeType, int], List[ResourceDict]
         to_launch, unfulfilled = (
             self.resource_demand_scheduler.get_nodes_to_launch(
@@ -363,6 +405,7 @@ class ClusterScaler:
         """Terminates nodes to enforce constraints defined by the autoscaling
         config.
 
+        Key place to scale down cluster based on node idle state.
         (1) Terminates nodes in excess of `max_workers`.
         (2) Terminates nodes idle for longer than `idle_timeout_minutes`.
         (3) Terminates outdated nodes,
@@ -371,6 +414,10 @@ class ClusterScaler:
 
         Avoids terminating non-outdated nodes required by
         cloudtik.core.api.request_resources().
+
+        The key of checking node is not used (idle) is the last_used_time_by_ip metrics
+        The basic logic to decide whether a node is idle is to check whether the available resources
+        is the same as the total resources. (We may need some tolerance when making such comparisons)
         """
         last_used = self.cluster_metrics.last_used_time_by_ip
         horizon = now - (60 * self.config["idle_timeout_minutes"])
@@ -648,7 +695,7 @@ class ClusterScaler:
 
     def _get_nodes_needed_for_request_resources(
             self, sorted_node_ids: List[NodeID]) -> FrozenSet[NodeID]:
-        # TODO(ameer): try merging this with resource_demand_scheduler
+        # TODO: try merging this with resource_demand_scheduler
         # code responsible for adding nodes for request_resources().
         """Returns the nodes NOT allowed to terminate due to request_resources().
 
@@ -665,7 +712,7 @@ class ClusterScaler:
                 "resources"])
         if not head_node_resources:
             # Legacy yaml might include {} in the resources field.
-            # TODO(ameer): this is somewhat duplicated in
+            # TODO: this is somewhat duplicated in
             # resource_demand_scheduler.py.
             static_nodes: Dict[
                 NodeIP,
@@ -784,6 +831,8 @@ class ClusterScaler:
                 "file_mounts_sync_continuously", False)
         try:
             new_config = self.config_reader()
+            new_config = decrypt_config(new_config)
+
             if new_config != getattr(self, "config", None):
                 try:
                     validate_config(new_config)
@@ -846,6 +895,8 @@ class ClusterScaler:
             # Collect the minimal nodes before update requirements
             self._collect_minimal_nodes_before_update()
 
+            # Update the new config to resource scaling policy
+            self.resource_scaling_policy.reset(self.config)
         except Exception as e:
             self.prometheus_metrics.reset_exceptions.inc()
             if errors_fatal:
