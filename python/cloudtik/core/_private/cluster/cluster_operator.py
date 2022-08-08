@@ -3151,10 +3151,10 @@ def prepare_nginx_service(config_file: str):
 
 def _prepare_nginx(config: Dict[str, Any]):
     if config["web_access_by_nginx"]:
-        run_system_command("which nginx||sudo apt install nginx")
-        head_node_ip = _get_head_node_ip(config)
-        nginx_conf_path = os.path.join(os.path.abspath(os.path.dirname(__file__)) + "cloudtik_nginx.conf")
-        run_system_command(f"sudo echo '{head_node_ip} cloudtik-head' >> /etc/hosts")
+        run_system_command("which nginx||sudo apt install nginx -y")
+        head_node_ip = os.getenv("CLOUDTIK_NODE_IP")
+        nginx_conf_path = os.path.join(os.path.abspath(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "cloudtik_nginx.conf")
+        run_system_command(f"sudo sh -c 'echo \"{head_node_ip} cloudtik-head\" >> /etc/hosts'")
         run_system_command(f"sudo nginx -c {nginx_conf_path}")
 
 

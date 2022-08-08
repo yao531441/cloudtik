@@ -54,6 +54,7 @@ cloudtik_files = [
 cloudtik_files += [
     "cloudtik/core/config-schema.json",
     "cloudtik/core/workspace-schema.json",
+    "cloudtik/core/cloudtik_nginx.conf",
 ]
 
 # If you're adding dependencies for cloudtik extras, please
