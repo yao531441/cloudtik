@@ -13,7 +13,7 @@ from cloudtik.core._private.cluster.cluster_operator import (
     RUN_ENV_TYPES, teardown_cluster_on_head, cluster_process_status_on_head, rsync_node_on_head, attach_node_on_head,
     exec_node_on_head, show_cluster_info, show_cluster_status, monitor_cluster, get_worker_node_ips,
     start_node_on_head, stop_node_on_head, kill_node_on_head, scale_cluster_on_head, show_worker_cpus,
-    show_worker_memory, _wait_for_ready, get_head_node_ip, prepare_nginx)
+    show_worker_memory, _wait_for_ready, get_head_node_ip, prepare_nginx_service, stop_nginx_service)
 from cloudtik.core._private.constants import CLOUDTIK_REDIS_DEFAULT_PASSWORD, \
     CLOUDTIK_KV_NAMESPACE_HEALTHCHECK
 from cloudtik.core._private.state import kv_store
@@ -249,7 +249,7 @@ def start_nginx():
     """Start nginx on the head node if necessary by configuration."""
     try:
         cluster_config_file = get_head_bootstrap_config()
-        prepare_nginx(cluster_config_file)
+        prepare_nginx_service(cluster_config_file)
         click.echo("Start nginx")
     except RuntimeError as re:
         cli_logger.error("Can't start nginx. " + str(re))
@@ -262,7 +262,7 @@ def stop_nginx():
     """Start nginx on the head node if necessary by configuration."""
     try:
         cluster_config_file = get_head_bootstrap_config()
-        stop_nginx(cluster_config_file)
+        stop_nginx_service(cluster_config_file)
         click.echo("Stop nginx")
     except RuntimeError as re:
         cli_logger.error("Can't stop nginx. " + str(re))

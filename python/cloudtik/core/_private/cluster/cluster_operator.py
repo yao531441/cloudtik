@@ -3144,7 +3144,7 @@ def _wait_for_ready(config: Dict[str, Any],
     raise TimeoutError("Timed out while waiting for workers to be ready: {}/{}".format(workers_ready, min_workers))
 
 
-def prepare_nginx(config_file: str):
+def prepare_nginx_service(config_file: str):
     config = _load_cluster_config(config_file)
     _prepare_nginx(config)
 
@@ -3158,7 +3158,7 @@ def _prepare_nginx(config: Dict[str, Any]):
         run_system_command(f"sudo nginx -c {nginx_conf_path}")
 
 
-def stop_nginx(config_file: str):
+def stop_nginx_service(config_file: str):
     config = _load_cluster_config(config_file)
     _stop_nginx(config)
 
