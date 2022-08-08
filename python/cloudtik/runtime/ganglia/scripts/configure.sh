@@ -120,7 +120,12 @@ function configure_ganglia() {
     fi
 }
 
+function set_apache_port(){
+  sudo sed -i "s#Listen 80#Listen 88#g" /etc/apache2/ports.conf
+}
+
 set_head_address
 configure_ganglia
+set_apache_port
 
 exit 0
