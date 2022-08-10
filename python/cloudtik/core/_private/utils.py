@@ -1051,6 +1051,7 @@ def fillout_defaults(config: Dict[str, Any]) -> Dict[str, Any]:
     # certain node providers and is thus left out of some cluster launching
     # configs.
     merged_config["auth"] = merged_config.get("auth", {})
+    merged_config["web_access_by_nginx"] = merged_config.get("web_access_by_nginx", False)
 
     # Take care of this here, in case a config does not specify any of head,
     # workers, node types, but does specify min workers:
@@ -2225,8 +2226,11 @@ def _is_use_internal_ip(provider_config: Dict[str, Any]) -> bool:
     return provider_config.get("use_internal_ips", False)
 
 
-def get_node_cluster_ip(provider: NodeProvider, node: str) -> str:
-    return provider.internal_ip(node)
+def get_node_cluster_ip(provider: NodeProvider, node: str, internal: bool = True) -> str:
+    if internal:
+        return provider.internal_ip(node)
+    else:
+        return provider.external_ip(node)
 
 
 def wait_for_cluster_ip(call_context, provider, node_id, deadline):
@@ -2580,6 +2584,22 @@ def get_useful_runtime_urls(runtime_config, head_cluster_ip):
             runtime_urls += urls
 
     return runtime_urls
+
+
+def get_runtime_web_prefixes(runtime_config):
+    runtime_prefixes = []
+    if runtime_config is None:
+        return runtime_prefixes
+
+    # Iterate through all the runtimes
+    runtime_types = runtime_config.get(RUNTIME_TYPES_CONFIG_KEY, [])
+    for runtime_type in runtime_types:
+        runtime = _get_runtime(runtime_type, runtime_config)
+        prefixes = runtime.get_web_service_prefix()
+        if prefixes:
+            runtime_prefixes += prefixes
+
+    return runtime_prefixes
 
 
 def get_enabled_runtimes(config):

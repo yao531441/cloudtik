@@ -315,6 +315,15 @@ def _get_useful_urls(cluster_head_ip):
     return urls
 
 
+def _get_web_service_prefix():
+    urls = [
+        {"name": "Yarn Web UI", "prefix": "yarn"},
+        {"name": "Jupyter Web UI", "prefix": "notebook, default password is \'cloudtik\'"},
+        {"name": "Spark History Server Web UI", "prefix": "sparkhistory"},
+    ]
+    return urls
+
+
 def _get_runtime_service_ports(runtime_config: Dict[str, Any]) -> Dict[str, Any]:
     service_ports = {
         "yarn-web": {

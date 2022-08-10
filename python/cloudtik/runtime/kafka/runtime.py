@@ -67,6 +67,9 @@ class KafkaRuntime(Runtime):
     def get_useful_urls(self, cluster_head_ip: str):
         return _get_useful_urls(cluster_head_ip)
 
+    def get_web_service_prefix(self):
+        return _get_web_service_prefix()
+
     @staticmethod
     def get_logs() -> Dict[str, str]:
         """Return a dictionary of name to log paths.

@@ -88,6 +88,13 @@ def _get_useful_urls(cluster_head_ip):
     return urls
 
 
+def _get_web_service_prefix():
+    urls = [
+        {"name": "HDFS Web UI", "prefix": "hdfs"}
+    ]
+    return urls
+
+
 def _get_runtime_service_ports(runtime_config: Dict[str, Any]) -> Dict[str, Any]:
     service_ports = {
         "hdfs-web": {

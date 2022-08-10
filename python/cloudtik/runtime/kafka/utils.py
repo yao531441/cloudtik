@@ -104,6 +104,10 @@ def _get_useful_urls(cluster_head_ip):
     return None
 
 
+def _get_web_service_prefix():
+    return None
+
+
 def _get_zookeeper_connect(runtime_config):
     if runtime_config is None:
         return None

@@ -68,6 +68,16 @@ class Runtime:
         """
         return None
 
+    def get_web_service_prefix(self):
+        """Return the web service url prefix to show when cluster started.
+        It's an array of dictionary
+        For example:
+        [
+            {"name": "app web", "prefix": "app"},
+        ]
+        """
+        return None
+
     def get_runtime_service_ports(self) -> Dict[str, Any]:
         """Return a dictionary of service port with name as the key.
         For example:
