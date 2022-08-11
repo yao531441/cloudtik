@@ -882,6 +882,7 @@ def bootstrap_aws_workspace(config):
     # create a copy of the input config to modify
     config = copy.deepcopy(config)
     _configure_allowed_ssh_sources(config)
+    _configure_allowed_http_sources(config)
     return config
 
 
@@ -906,6 +907,31 @@ def _configure_allowed_ssh_sources(config):
         "FromPort": 22,
         "ToPort": 22,
         "IpRanges": [{"CidrIp": allowed_ssh_source} for allowed_ssh_source in allowed_ssh_sources]
+    }
+    ip_permissions.append(ip_permission)
+
+
+def _configure_allowed_http_sources(config):
+    provider_config = config["provider"]
+    if "allowed_http_sources" not in provider_config:
+        return
+
+    allowed_http_sources = provider_config["allowed_http_sources"]
+    if len(allowed_http_sources) == 0:
+        return
+
+    if "security_group" not in provider_config:
+        provider_config["security_group"] = {}
+    security_group_config = provider_config["security_group"]
+
+    if "IpPermissions" not in security_group_config:
+        security_group_config["IpPermissions"] = []
+    ip_permissions = security_group_config["IpPermissions"]
+    ip_permission = {
+        "IpProtocol": "tcp",
+        "FromPort": 80,
+        "ToPort": 80,
+        "IpRanges": [{"CidrIp": allowed_http_source} for allowed_http_source in allowed_http_sources]
     }
     ip_permissions.append(ip_permission)
 

@@ -1316,6 +1316,7 @@ def bootstrap_gcp_workspace(config):
     # create a copy of the input config to modify
     config = copy.deepcopy(config)
     _configure_allowed_ssh_sources(config)
+    _configure_allowed_http_sources(config)
     return config
 
 
@@ -1353,6 +1354,37 @@ def _configure_allowed_ssh_sources(config):
             }
         ],
         "sourceRanges": [allowed_ssh_source for allowed_ssh_source in allowed_ssh_sources]
+    }
+    firewall_rules.append(firewall_rule)
+
+
+def _configure_allowed_http_sources(config):
+    provider_config = config["provider"]
+    if "allowed_http_sources" not in provider_config:
+        return
+
+    allowed_http_sources = provider_config["allowed_http_sources"]
+    if len(allowed_http_sources) == 0:
+        return
+
+    if "firewalls" not in provider_config:
+        provider_config["firewalls"] = {}
+    fire_walls = provider_config["firewalls"]
+
+    if "firewall_rules" not in fire_walls:
+        fire_walls["firewall_rules"] = []
+    firewall_rules = fire_walls["firewall_rules"]
+
+    firewall_rule = {
+        "allowed": [
+            {
+              "IPProtocol": "tcp",
+              "ports": [
+                "80"
+              ]
+            }
+        ],
+        "sourceRanges": [allowed_http_source for allowed_http_source in allowed_http_sources]
     }
     firewall_rules.append(firewall_rule)
 
