@@ -2469,6 +2469,29 @@ def escape_private_key(private_key: str):
     return escaped_private_key
 
 
+def _get_node_type_specific_object(config, node_type, object_name):
+    config_object = config.get(object_name)
+    node_type_config = _get_node_type_config(config, node_type)
+    if node_type_config is not None:
+        node_config_object = node_type_config.get(object_name)
+        if node_config_object is not None:
+            # Merge with global config object
+            if config_object is not None:
+                config_object = copy.deepcopy(config_object)
+                return merge_config(config_object, node_config_object)
+            else:
+                return node_config_object
+    return config_object
+
+
+def with_environment_variables_from_config(config, node_type: str):
+    config_envs = {}
+    envs = _get_node_type_specific_object(config, node_type, "envs")
+    if envs is not None:
+        config_envs.update(envs)
+    return config_envs
+
+
 def with_runtime_environment_variables(runtime_config, config, provider, node_id: str):
     all_runtime_envs = {}
     if runtime_config is None:
@@ -2717,53 +2740,68 @@ def _gcd_of_numbers(numbers):
 
 
 def get_preferred_cpu_bundle_size(config: Dict[str, Any]) -> Optional[int]:
+    return get_preferred_bundle_size(config, constants.CLOUDTIK_RESOURCE_CPU)
+
+
+def get_preferred_memory_bundle_size(config: Dict[str, Any]) -> Optional[int]:
+    return get_preferred_bundle_size(config, constants.CLOUDTIK_RESOURCE_MEMORY)
+
+
+def get_preferred_bundle_size(config: Dict[str, Any], resource_id: str) -> Optional[int]:
     available_node_types = config.get("available_node_types")
     if available_node_types is None:
         return None
 
-    cpu_sizes = []
+    resource_sizes = []
     head_node_type = config["head_node_type"]
     for node_type in available_node_types:
         if node_type == head_node_type:
             continue
 
         resources = available_node_types[node_type].get("resources", {})
-        cpu_total = resources.get("CPU", 0)
-        if cpu_total > 0:
-            cpu_sizes += [cpu_total]
+        resource_total = resources.get(resource_id, 0)
+        if resource_total > 0:
+            resource_sizes += [resource_total]
 
-    num_types = len(cpu_sizes)
+    num_types = len(resource_sizes)
     if num_types == 0:
         return None
     elif num_types == 1:
-        return cpu_sizes[0]
+        return resource_sizes[0]
     else:
-        return _gcd_of_numbers(cpu_sizes)
+        return _gcd_of_numbers(resource_sizes)
 
 
 def get_resource_demands_for_cpu(num_cpus, config):
-    cpus_to_request = None
-    if num_cpus is None:
-        return cpus_to_request
+    return get_resource_demands(
+        num_cpus, constants.CLOUDTIK_RESOURCE_CPU, config, 1)
 
-    remaining = num_cpus
-    cpus_to_request = []
+
+def get_resource_demands_for_memory(memory_in_bytes, config):
+    return get_resource_demands(
+        memory_in_bytes,constants.CLOUDTIK_RESOURCE_MEMORY, config, pow(1024, 3))
+
+
+def get_resource_demands(amount, resource_id, config, default_bundle_size):
+    if amount is None:
+        return None
+
+    bundle_size = default_bundle_size
     if config:
         # convert the num cpus based on the largest common factor of the node types
-        cpu_bundle_size = get_preferred_cpu_bundle_size(config)
-        if cpu_bundle_size and cpu_bundle_size > 0:
-            count = int(num_cpus / cpu_bundle_size)
-            remaining = num_cpus % cpu_bundle_size
-            if count > 0:
-                cpus_to_request += [{"CPU": cpu_bundle_size}] * count
-            if remaining > 0:
-                cpus_to_request += [{"CPU": remaining}]
-            remaining = 0
+        preferred_bundle_size = get_preferred_bundle_size(config, resource_id)
+        if preferred_bundle_size and preferred_bundle_size > default_bundle_size:
+            bundle_size = preferred_bundle_size
 
+    count = int(amount / bundle_size)
+    remaining = amount % bundle_size
+    to_request = []
+    if count > 0:
+        to_request += [{resource_id: bundle_size}] * count
     if remaining > 0:
-        cpus_to_request += [{"CPU": 1}] * remaining
+        to_request += [{resource_id: remaining}]
 
-    return cpus_to_request
+    return to_request
 
 
 def get_node_type(provider, node_id: str):
@@ -2829,7 +2867,7 @@ def get_runtime_config_key(node_type: str):
 def retrieve_runtime_config(node_type: str = None):
     # Retrieve the runtime config
     runtime_config_key = get_runtime_config_key(node_type)
-    encrypted_runtime_config = _get_key_from_kv( runtime_config_key)
+    encrypted_runtime_config = _get_key_from_kv(runtime_config_key)
     if encrypted_runtime_config is None:
         return None
 
@@ -3124,3 +3162,39 @@ def decode_config_value(v):
     else:
         return v
 
+
+def _get_runtime_scaling_policy(config, head_ip):
+    runtime_config = config.get(RUNTIME_CONFIG_KEY)
+    if runtime_config is None:
+        return None
+
+    runtime_types = runtime_config.get(RUNTIME_TYPES_CONFIG_KEY, [])
+    if len(runtime_types) == 0:
+        return None
+
+    for runtime_type in runtime_types:
+        runtime = _get_runtime(runtime_type, runtime_config)
+        scaling_policy = runtime.get_scaling_policy(config, head_ip)
+        if scaling_policy is not None:
+            return scaling_policy
+    return None
+
+
+def convert_nodes_to_cpus(config: Dict[str, Any], nodes: int) -> int:
+    return convert_nodes_to_resource(config, nodes, constants.CLOUDTIK_RESOURCE_CPU)
+
+
+def convert_nodes_to_memory(config: Dict[str, Any], nodes: int) -> int:
+    return convert_nodes_to_resource(config, nodes, constants.CLOUDTIK_RESOURCE_MEMORY)
+
+
+def convert_nodes_to_resource(config: Dict[str, Any], nodes: int, resource_id) -> int:
+    available_node_types = config["available_node_types"]
+    head_node_type = config["head_node_type"]
+    for node_type in available_node_types:
+        if node_type != head_node_type:
+            resources = available_node_types[node_type].get("resources", {})
+            resource_total = resources.get(resource_id, 0)
+            if resource_total > 0:
+                return nodes * resource_total
+    return 0

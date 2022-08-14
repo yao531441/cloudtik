@@ -183,10 +183,9 @@ class ClusterScaler:
         # exactly once).
         self.provider = None
         # Keep this before self.reset (if an exception occurs in reset
-        # then prometheus_metrics must be instantitiated to increment the
+        # then prometheus_metrics must be instantiated to increment the
         # exception counter)
-        self.prometheus_metrics = prometheus_metrics or \
-                            ClusterPrometheusMetrics()
+        self.prometheus_metrics = prometheus_metrics or ClusterPrometheusMetrics()
         self.resource_demand_scheduler = None
 
         # These are records of publish for performance
@@ -284,8 +283,9 @@ class ClusterScaler:
     def run(self):
         self.reset(errors_fatal=False)
 
-        # self.resource_scaling_policy.update()
-        self.cluster_metrics_updater.update()
+        self.resource_scaling_policy.update()
+        self.cluster_metrics_updater.update(
+            self.resource_scaling_policy.has_scaling_policy())
 
         status = {
             "cluster_metrics_report": asdict(self.cluster_metrics.summary()),
@@ -654,16 +654,15 @@ class ClusterScaler:
             else:
                 infeasible.append(bundle)
         if pending:
-            if self.cluster_metrics.cluster_full_of_actors_detected:
-                for request in pending:
-                    self.event_summarizer.add_once_per_interval(
-                        "Warning: The following resource request cannot be "
-                        "scheduled right now: {}. This is likely due to all "
-                        "cluster resources being claimed by actors. Consider "
-                        "creating fewer actors or adding more nodes "
-                        "to this cluster.".format(request),
-                        key="pending_{}".format(sorted(request.items())),
-                        interval_s=30)
+            for request in pending:
+                self.event_summarizer.add_once_per_interval(
+                    "Warning: The following resource request cannot be "
+                    "scheduled right now: {}. This is likely due to all "
+                    "cluster resources being claimed by tasks. Consider "
+                    "creating fewer tasks or adding more nodes "
+                    "to this cluster.".format(request),
+                    key="pending_{}".format(sorted(request.items())),
+                    interval_s=30)
         if infeasible:
             for request in infeasible:
                 self.event_summarizer.add_once_per_interval(

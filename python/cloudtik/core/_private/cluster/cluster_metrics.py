@@ -95,6 +95,7 @@ class ClusterMetrics:
         self.resource_load_by_ip = {}
 
         # Resource requests (on demand or autoscale)
+        self.last_demanding_time = 0
         self.autoscaling_instructions = {}
         self.resource_demands = []
         self.resource_requests = []
@@ -111,9 +112,16 @@ class ClusterMetrics:
         self.autoscaling_instructions = autoscaling_instructions
 
         # resource_demands is a List[Dict[str, float]]
-        resource_demands = autoscaling_instructions.get("resource_demands")
-        if not resource_demands:
-            resource_demands = []
+        resource_demands = []
+        if autoscaling_instructions is not None:
+            demanding_time = autoscaling_instructions.get("demanding_time")
+            _resource_demands = autoscaling_instructions.get("resource_demands")
+
+            # Only the new demanding will be updated
+            if demanding_time > self.last_demanding_time and _resource_demands:
+                resource_demands = _resource_demands
+                self.last_demanding_time = demanding_time
+
         self.resource_demands = resource_demands
 
     def update_node_resources(self,
@@ -142,6 +150,7 @@ class ClusterMetrics:
         # If a node is idle, it's last used time will not be updated and keep in the previous used time
         # This last used time can be used to check how long a node is in an idle state
         if (ip not in self.last_used_time_by_ip
+                or ("in_use" in resource_load and resource_load["in_use"])
                 or not self._is_node_idle(ip)):
             self.last_used_time_by_ip[ip] = last_resource_time
 
@@ -196,6 +205,7 @@ class ClusterMetrics:
         prune(self.dynamic_resources_by_ip, should_log=False)
         prune(self.resource_load_by_ip, should_log=False)
         prune(self.last_heartbeat_time_by_ip, should_log=False)
+        prune(self.last_resource_time_by_ip, should_log=False)
 
     def get_node_resources(self):
         """Return a list of node resources (static resource sizes).
