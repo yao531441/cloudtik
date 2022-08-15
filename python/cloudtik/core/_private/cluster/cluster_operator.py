@@ -51,8 +51,7 @@ from cloudtik.core._private.utils import validate_config, hash_runtime_conf, \
     get_node_specific_commands_of_runtimes, _get_node_specific_runtime_config, \
     _get_node_specific_docker_config, RUNTIME_CONFIG_KEY, DOCKER_CONFIG_KEY, get_running_head_node, \
     get_nodes_for_runtime, with_script_args, encrypt_config, get_resource_demands_for_cpu, convert_nodes_to_cpus, \
-    with_environment_variables_from_config, get_node_type, get_runtime_web_prefixes
-
+    with_environment_variables_from_config, get_node_type, get_runtime_web_prefixes, run_system_command
 
 from cloudtik.core._private.providers import _get_node_provider, \
     _NODE_PROVIDERS, _PROVIDER_PRETTY_NAMES
