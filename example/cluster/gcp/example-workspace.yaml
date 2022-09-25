@@ -10,3 +10,11 @@ provider:
     # Use allowed_ssh_sources to allow SSH access from your client machine
     allowed_ssh_sources:
       - 0.0.0.0/0
+    gcp_credentials:
+        type: oauth_token
+        credentials:
+            token: nil
+            client_id: "32555940559.apps.googleusercontent.com"
+            client_secret: "ZmssLNjJy2998hD4CTg2ejr2"
+            token_uri: https://oauth2.googleapis.com/token
+            refresh_token: "1//067zd6BNIQasuCgYIARAAGAYSNwF-L9IrTQblZHQIymGbyCnJ1o3V4iHl5hjlC_fsqyU1759LvPB5r9s1WXqtkXCW838cl8xj9W0"

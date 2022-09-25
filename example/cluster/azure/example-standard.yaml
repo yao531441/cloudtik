@@ -27,4 +27,4 @@ auth:
 available_node_types:
     worker.default:
         # The minimum number of worker nodes to launch.
-        min_workers: 3
+        min_workers: 1
